@@ -1,65 +1,84 @@
 import imaplib
-import email
 
-def delete_unread_emails(
-    username: str, 
-    password: str, 
-    imap_server: str = "imap.gmail.com", 
-    mailbox: str = "INBOX"
+def delete_emails_from_folder(
+    mail,
+    folder: str,
+    search_criteria: str
 ):
     """
-    Connects to the specified IMAP server, selects the given mailbox,
-    searches for unread emails, and deletes them permanently.
+    Selects the specified folder, searches for emails matching 'search_criteria',
+    marks them for deletion, and expunges (permanently deletes).
     
-    :param username:    Your email address or username for the IMAP server
-    :param password:    Your email password or app-specific password
-    :param imap_server: The IMAP server address (default: 'imap.gmail.com')
-    :param mailbox:     The mailbox/folder to operate on (default: 'INBOX')
+    :param mail:            An authenticated imaplib.IMAP4_SSL instance.
+    :param folder:          The folder/label to select, e.g. "INBOX" or "[Gmail]/Spam".
+    :param search_criteria: IMAP search criteria, e.g. "(UNSEEN)" or "(ALL)".
+    """
+    # 1. Select folder in read/write mode (readonly=False)
+    status, _ = mail.select(folder, readonly=False)
+    if status != "OK":
+        print(f"Could not open folder: {folder}")
+        return
+
+    # 2. Search for messages matching the criteria
+    status, data = mail.search(None, search_criteria)
+    if status != "OK":
+        print(f"Search failed in folder: {folder}")
+        return
+
+    msg_ids = data[0].split()
+    if not msg_ids:
+        print(f"No messages found in {folder} matching {search_criteria}")
+        return
+    
+    print(f"Found {len(msg_ids)} messages in '{folder}' matching '{search_criteria}'. Deleting now...")
+
+    # 3. Mark them for deletion
+    for msg_id in msg_ids:
+        mail.store(msg_id, "+FLAGS", "\\Deleted")
+
+    # 4. Expunge to permanently remove
+    mail.expunge()
+    print(f"Deleted {len(msg_ids)} messages from '{folder}'.")
+
+
+def delete_unread_inbox_and_spam(
+    username: str,
+    password: str
+):
+    """
+    Connects to Gmail over IMAP, deletes:
+      - All unread emails from Inbox
+      - All spam emails (or unread spam if you change the search_criteria)
     """
     try:
-        # 1. Connect to IMAP server over SSL
-        mail = imaplib.IMAP4_SSL(imap_server)
-        
-        # 2. Log in to the server
+        # 1. Connect to Gmail IMAP with SSL
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+
+        # 2. Log in using your username + App Password (if 2FA is on)
         mail.login(username, password)
-        
-        # 3. Select the mailbox you want to operate on
-        #    Use readonly=False to allow deletion
-        mail.select(mailbox, readonly=False)
-        
-        # 4. Search for all UNSEEN (unread) emails
-        status, msg_ids = mail.search(None, '(UNSEEN)')
-        
-        # msg_ids is a space-separated byte string of all the email IDs
-        # e.g.: b'1 2 3 ...'
-        if status == "OK":
-            msg_id_list = msg_ids[0].split()
-            print(f"Found {len(msg_id_list)} unread emails to delete...")
-            
-            # 5. Mark each unread email for deletion
-            for msg_id in msg_id_list:
-                mail.store(msg_id, "+FLAGS", "\\Deleted")
-            
-            # 6. Permanently remove flagged emails from the mailbox
-            mail.expunge()
-            
-            print("Unread emails deleted successfully.")
-        else:
-            print("No unread emails found or could not fetch email IDs.")
-        
-        # 7. Close the mailbox and log out
+
+        # ================ Delete UNREAD from Inbox =================
+        delete_emails_from_folder(mail, "INBOX", "(UNSEEN)")
+
+        # ================ Delete Spam (Choose ALL or UNSEEN) =======
+        # Option A: Delete ALL in spam
+        # delete_emails_from_folder(mail, "[Gmail]/Spam", "(ALL)")
+
+        # Option B: Delete only UNREAD spam
+        delete_emails_from_folder(mail, "[Gmail]/Spam", "(UNSEEN)")
+
+        # 3. Close the connection
         mail.close()
         mail.logout()
-        
+        print("Done.")
+
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
+        print(f"An error occurred: {e}")
 
 
 if __name__ == "__main__":
-    # Replace with your credentials and desired mailbox
-    USERNAME = "your_email@example.com"
-    PASSWORD = "your_password_or_app_password"
-    IMAP_SERVER = "imap.gmail.com"
-    MAILBOX = "INBOX"
-    
-    delete_unread_emails(USERNAME, PASSWORD, IMAP_SERVER, MAILBOX)
+    # Replace with your Gmail address and App Password
+    USERNAME = "holdg301@gmail.com"
+    PASSWORD = "123@Holdgold"  # If you have 2FA enabled, use an App Password
+
+    delete_unread_inbox_and_spam(USERNAME, PASSWORD)
